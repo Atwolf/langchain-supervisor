@@ -22,31 +22,17 @@ Usage:
 from collections.abc import Callable
 from typing import Any
 
-try:
-    from chainlit.context import context_var
-    from chainlit.step import Step
-    from chainlit.utils import utc_now
-except ImportError:
-    # Graceful fallback if chainlit is not installed
-    context_var = None
-    Step = None
-    utc_now = None
-
-try:
-    from langchain.agents.middleware import AgentMiddleware
-    from langchain.tools.tool_node import ToolCallRequest
-    from langchain_core.load.dump import dumps
-    from langchain_core.messages import ToolMessage
-    from langgraph.types import Command
-except ImportError:
-    # Graceful fallback for basic usage
-    AgentMiddleware = object
-    ToolCallRequest = None
-    ToolMessage = None
-    Command = None
+from chainlit.context import context_var
+from chainlit.step import Step
+from chainlit.utils import utc_now
+from langchain.agents.middleware import AgentMiddleware
+from langchain.tools.tool_node import ToolCallRequest
+from langchain_core.load.dump import dumps
+from langchain_core.messages import ToolMessage
+from langgraph.types import Command
 
 
-class ChainlitMiddlewareTracer(AgentMiddleware if AgentMiddleware != object else object):
+class ChainlitMiddlewareTracer(AgentMiddleware):
     """
     Middleware tracer for LangChain v1.x agents integrating with Chainlit.
 
@@ -61,8 +47,7 @@ class ChainlitMiddlewareTracer(AgentMiddleware if AgentMiddleware != object else
     """
 
     def __init__(self):
-        if AgentMiddleware != object:
-            super().__init__()
+        super().__init__()
         self.active_steps: dict[str, Step] = {}
         self.parent_step_id: str | None = None
 
@@ -99,7 +84,7 @@ class ChainlitMiddlewareTracer(AgentMiddleware if AgentMiddleware != object else
         try:
             step.input, step.language = self._process_content(tool_input)
             step.show_input = step.language or False
-        except Exception:
+        except (TypeError, ValueError, AttributeError):
             step.input = str(tool_input)
             step.show_input = True
 
@@ -112,7 +97,7 @@ class ChainlitMiddlewareTracer(AgentMiddleware if AgentMiddleware != object else
             # Format the output
             try:
                 step.output, step.language = self._process_content(result.content)
-            except Exception:
+            except (TypeError, ValueError, AttributeError):
                 step.output = str(result)
 
             step.end = utc_now()

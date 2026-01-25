@@ -7,9 +7,9 @@ from src.agents.models import AgentRecord
 def calculate(expression: str) -> str:
     """Evaluate a mathematical expression and return the result."""
     try:
-        result = eval(expression, {"__builtins__": {}}, {})
+        result = eval(expression, {"__builtins__": {}}, {})  # noqa: S307
         return str(result)
-    except Exception as e:
+    except (SyntaxError, NameError, TypeError, ZeroDivisionError, ValueError) as e:
         return f"Error evaluating expression: {e}"
 
 

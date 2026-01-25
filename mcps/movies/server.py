@@ -41,9 +41,7 @@ def list_popular_movies(limit: int = 10, genre: str | None = None) -> str:
     if not movies:
         return "No movies found."
 
-    return "\n".join(
-        f"- {m['title']} ({m['year']}) - {m['genre']}" for m in movies
-    )
+    return "\n".join(f"- {m['title']} ({m['year']}) - {m['genre']}" for m in movies)
 
 
 if __name__ == "__main__":

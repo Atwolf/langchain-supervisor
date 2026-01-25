@@ -62,8 +62,11 @@ def build_agents(
                 {"messages": [{"role": "user", "content": query}]}
             )
             # Extract the final AI message content
-            ai_messages = [m for m in result["messages"] if m.type == "ai" and m.content]
+            ai_messages = [
+                m for m in result["messages"] if m.type == "ai" and m.content
+            ]
             return ai_messages[-1].content if ai_messages else "No response from agent."
+
         return delegate
 
     supervisor_tools = []
@@ -88,10 +91,26 @@ def build_agents(
 
 # Starter prompts for quick user engagement
 STARTERS = [
-    {"label": "Calculate something", "message": "What is 25 * 47 + 183?", "icon": "calculator"},
-    {"label": "Check weather", "message": "What's the weather in San Francisco?", "icon": "cloud-sun"},
-    {"label": "Movie info", "message": "Tell me about the movie Inception", "icon": "film"},
-    {"label": "General question", "message": "What can you help me with?", "icon": "help"},
+    {
+        "label": "Calculate something",
+        "message": "What is 25 * 47 + 183?",
+        "icon": "calculator",
+    },
+    {
+        "label": "Check weather",
+        "message": "What's the weather in San Francisco?",
+        "icon": "cloud-sun",
+    },
+    {
+        "label": "Movie info",
+        "message": "Tell me about the movie Inception",
+        "icon": "film",
+    },
+    {
+        "label": "General question",
+        "message": "What can you help me with?",
+        "icon": "help",
+    },
 ]
 
 
@@ -106,7 +125,9 @@ async def on_chat_start():
 
     for agent in AGENTS:
         for mcp_path in agent.mcps:
-            server_name = Path(mcp_path).stem  # e.g., "server" from "mcps/movies/server.py"
+            server_name = Path(
+                mcp_path
+            ).stem  # e.g., "server" from "mcps/movies/server.py"
             mcp_servers[server_name] = {
                 "command": "uv",
                 "args": ["run", "python", mcp_path],
@@ -129,18 +150,22 @@ async def on_chat_start():
                     mcp_tools.setdefault(agent_name, []).append(tool)
                     break  # Each tool only belongs to one agent
 
-            print(f"Connected to MCP servers. Tools loaded: {[t.name for t in all_mcp_tools]}")
+            print(
+                f"Connected to MCP servers. Tools loaded: {[t.name for t in all_mcp_tools]}"
+            )
 
             # Store client for potential cleanup
             cl.user_session.set("mcp_client", mcp_client)
 
-        except Exception as e:
+        except (ConnectionError, TimeoutError, RuntimeError, OSError) as e:
             print(f"Failed to start MCP servers: {e}")
             traceback.print_exc()
 
     # Build all agents with middleware and MCP tools
     middleware = [ChainlitMiddlewareTracer()]
-    supervisor, sub_agents = build_agents(AGENTS, mcp_tools=mcp_tools, middleware=middleware)
+    supervisor, sub_agents = build_agents(
+        AGENTS, mcp_tools=mcp_tools, middleware=middleware
+    )
     cl.user_session.set("supervisor", supervisor)
     cl.user_session.set("sub_agents", sub_agents)
 
