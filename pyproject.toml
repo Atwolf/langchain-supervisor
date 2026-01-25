@@ -1,0 +1,20 @@
+[project]
+name = "langchain-supervisor"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "langchain>=0.3",
+    "langchain-anthropic>=0.3",
+    "langgraph>=0.2",
+    "chainlit>=1.0",
+    "mcp>=1.0",
+    "langchain-mcp-adapters>=0.1",
+    "pyjwt>=2.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
