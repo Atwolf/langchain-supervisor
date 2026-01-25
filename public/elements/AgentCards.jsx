@@ -31,14 +31,14 @@ export default function AgentCards() {
                                 {hasTools && (
                                     <button
                                         onClick={() => toggleExpanded(idx)}
-                                        className="flex items-center gap-1 p-0.5 rounded hover:bg-muted transition-colors self-center"
-                                        aria-label={isExpanded ? "Collapse tools" : "Expand tools"}
+                                        className="flex items-center gap-1 px-1.5 py-1 rounded hover:bg-muted transition-colors self-center"
+                                        aria-label={isExpanded ? "Collapse details" : "Expand details"}
                                     >
-                                        <span className="text-xs text-muted-foreground">info</span>
+                                        <span className="text-xs text-muted-foreground">Info</span>
                                         {isExpanded ? (
-                                            <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                                            <ChevronUp className="h-3 w-3 text-muted-foreground relative top-[1px]" />
                                         ) : (
-                                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                            <ChevronDown className="h-3 w-3 text-muted-foreground relative top-[1px]" />
                                         )}
                                     </button>
                                 )}
