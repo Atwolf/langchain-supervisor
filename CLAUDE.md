@@ -42,7 +42,9 @@ Agents can specify external tool sources via the `mcps` field in `AgentRecord`. 
 The `MultiServerMCPClient` from `langchain-mcp-adapters` manages connections to multiple MCP servers and converts their tools to LangChain-compatible tools. Servers are started as subprocesses via stdio transport when the Chainlit app starts (`@cl.on_chat_start`).
 
 ### Custom UI Elements
-On chat start, agent cards are displayed using Chainlit's `CustomElement` feature with a React component (`public/elements/AgentCards.jsx`). The component uses a compact layout optimized for the copilot widget, showing each agent's name and description with a prompt explaining automatic query routing.
+On chat start, agent cards are displayed using Chainlit's `CustomElement` feature with a React component (`public/elements/AgentCards.jsx`). The component uses a compact layout optimized for the copilot widget, showing each agent's name and description.
+
+**Starter Prompts**: Clickable starter buttons are rendered below the agent cards to help users quickly engage with the system. Starters are defined in `STARTERS` list in `chainlit_app.py` and passed as props to the AgentCards component. Clicking a starter uses Chainlit's `sendUserMessage()` global API (available to custom elements) to send the message directly to the chat.
 
 ### Copilot Widget
 A standalone website (`website/index.html`) embeds the Chainlit copilot widget for integration into external pages. JWT authentication is supported via `CHAINLIT_AUTH_SECRET` in `.env`.

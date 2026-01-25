@@ -86,6 +86,15 @@ def build_agents(
     return supervisor, sub_agents
 
 
+# Starter prompts for quick user engagement
+STARTERS = [
+    {"label": "Calculate something", "message": "What is 25 * 47 + 183?", "icon": "calculator"},
+    {"label": "Check weather", "message": "What's the weather in San Francisco?", "icon": "cloud-sun"},
+    {"label": "Movie info", "message": "Tell me about the movie Inception", "icon": "film"},
+    {"label": "General question", "message": "What can you help me with?", "icon": "help"},
+]
+
+
 @cl.on_chat_start
 async def on_chat_start():
     """Initialize MCP servers and build the graph on chat start."""
@@ -135,6 +144,13 @@ async def on_chat_start():
     cl.user_session.set("supervisor", supervisor)
     cl.user_session.set("sub_agents", sub_agents)
 
+    # Store agent metadata for middleware to display badges on delegation
+    agent_metadata = {
+        agent.name: {"name": agent.name.replace("_", " ").title(), "icon": agent.icon}
+        for agent in AGENTS
+    }
+    cl.user_session.set("agent_metadata", agent_metadata)
+
     # Set up agent mode picker
     mode_options = [
         cl.ModeOption(
@@ -160,6 +176,7 @@ async def on_chat_start():
 
     # Build agent cards data for display
     agents_data = {
+        "starters": STARTERS,
         "agents": [
             {
                 "name": agent.name.replace("_", " ").title(),
@@ -171,12 +188,12 @@ async def on_chat_start():
                 ],
             }
             for agent in AGENTS
-        ]
+        ],
     }
 
     # Send agent cards as custom element
     agent_cards = cl.CustomElement(name="AgentCards", props=agents_data)
-    await cl.Message(content="Available agents:", elements=[agent_cards]).send()
+    await cl.Message(content="", elements=[agent_cards]).send()
 
 
 @cl.on_message
@@ -189,7 +206,7 @@ async def on_message(message: cl.Message):
         return
 
     # Get selected agent mode (defaults to "auto")
-    selected_agent = message.modes.get("agent", "auto")
+    selected_agent = (message.modes or {}).get("agent", "auto")
 
     # Choose the appropriate agent
     if selected_agent == "auto":

@@ -1,11 +1,19 @@
 import { useState } from "react"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
-import { Bot, Calculator, CloudSun, Film, ChevronDown, ChevronUp, Wrench } from "lucide-react"
+import { Bot, Calculator, CloudSun, Film, ChevronDown, ChevronUp, Wrench, HelpCircle, Sparkles } from "lucide-react"
 
 const iconMap = {
     "calculator": Calculator,
     "cloud-sun": CloudSun,
     "film": Film,
+    "help": HelpCircle,
+}
+
+const sendMessage = (message) => {
+    // Use Chainlit's global sendUserMessage API for custom elements
+    if (typeof sendUserMessage === "function") {
+        sendUserMessage(message)
+    }
 }
 
 export default function AgentCards() {
@@ -17,6 +25,12 @@ export default function AgentCards() {
 
     return (
         <div className="flex flex-col gap-2 p-2">
+            {/* Welcome Message */}
+            <p className="text-xs text-muted-foreground leading-tight mb-1">
+                Welcome to the new and enhanced chatbot. This chatbot leverages multiple agents, selected intelligently to answer your question.
+            </p>
+
+            {/* Agent Cards */}
             {props.agents?.map((agent, idx) => {
                 const IconComponent = iconMap[agent.icon] || Bot
                 const isExpanded = expandedIndex === idx
@@ -73,9 +87,30 @@ export default function AgentCards() {
                     </Card>
                 )
             })}
-            <p className="text-xs text-muted-foreground text-center pt-1">
-                Your query will be automatically routed to the right agent.
-            </p>
+
+            {/* Starter Prompts */}
+            {props.starters && props.starters.length > 0 && (
+                <div className="flex flex-col gap-1.5 mt-2">
+                    <h3 className="text-sm font-medium text-foreground">
+                        Try these prompts:
+                    </h3>
+                    <div className="grid grid-cols-2 gap-1.5">
+                        {props.starters.map((starter, idx) => {
+                            const StarterIcon = iconMap[starter.icon] || Sparkles
+                            return (
+                                <button
+                                    key={idx}
+                                    onClick={() => sendMessage(starter.message)}
+                                    className="flex items-center gap-1.5 px-2 py-1.5 text-xs text-left rounded-md border border-border bg-background hover:bg-muted transition-colors"
+                                >
+                                    <StarterIcon className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                                    <span className="truncate">{starter.label}</span>
+                                </button>
+                            )
+                        })}
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
