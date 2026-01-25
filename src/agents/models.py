@@ -9,3 +9,4 @@ class AgentRecord:
     route_description: str
     tools: list[Callable] = field(default_factory=list)
     mcps: list[str] = field(default_factory=list)
+    icon: str | None = None

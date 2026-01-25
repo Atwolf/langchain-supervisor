@@ -28,24 +28,27 @@ def get_weather(city: str) -> str:
 
 math_agent = AgentRecord(
     name="math_agent",
-    description="An agent that can evaluate mathematical expressions.",
+    description="Evaluate mathematical expressions.",
     route_description="Route to this agent when the user asks to calculate, evaluate, or solve a math problem.",
     tools=[calculate],
+    icon="calculator",
 )
 
 weather_agent = AgentRecord(
     name="weather_agent",
-    description="An agent that can look up current weather for cities.",
+    description="Look up current weather for cities.",
     route_description="Route to this agent when the user asks about weather, temperature, or climate conditions for a location.",
     tools=[get_weather],
+    icon="cloud-sun",
 )
 
 movie_agent = AgentRecord(
     name="movie_agent",
-    description="An agent that lists popular movies.",
+    description="Find and list popular movies.",
     route_description="Route to this agent when the user asks about popular movies, movie recommendations, or film lists.",
     tools=[],  # Tools come from MCP server
     mcps=["mcps/movies/server.py"],
+    icon="film",
 )
 
 AGENTS: list[AgentRecord] = [math_agent, weather_agent, movie_agent]

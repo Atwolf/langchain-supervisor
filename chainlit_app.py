@@ -12,6 +12,9 @@ from src.agents import AGENTS
 from src.agents.models import AgentRecord
 from src.middleware import ChainlitMiddlewareTracer
 
+# Wells Fargo red gradient sparkle icon
+AUTO_ICON = "/public/auto-icon.svg"
+
 
 def build_supervisor_prompt(agents: list[AgentRecord]) -> str:
     agent_descriptions = "\n".join(
@@ -27,12 +30,12 @@ def build_supervisor_prompt(agents: list[AgentRecord]) -> str:
     )
 
 
-def build_graph(
+def build_agents(
     agents: list[AgentRecord],
     mcp_tools: dict[str, list] = None,
     middleware: list = None,
 ):
-    """Build the supervisor graph with optional MCP tools and middleware."""
+    """Build all agents and return both supervisor and sub-agents."""
     mcp_tools = mcp_tools or {}
     middleware = middleware or []
 
@@ -80,7 +83,7 @@ def build_graph(
         system_prompt=supervisor_prompt,
         middleware=middleware,
     )
-    return supervisor
+    return supervisor, sub_agents
 
 
 @cl.on_chat_start
@@ -126,10 +129,34 @@ async def on_chat_start():
             print(f"Failed to start MCP servers: {e}")
             traceback.print_exc()
 
-    # Build the graph with middleware and MCP tools
+    # Build all agents with middleware and MCP tools
     middleware = [ChainlitMiddlewareTracer()]
-    graph = build_graph(AGENTS, mcp_tools=mcp_tools, middleware=middleware)
-    cl.user_session.set("graph", graph)
+    supervisor, sub_agents = build_agents(AGENTS, mcp_tools=mcp_tools, middleware=middleware)
+    cl.user_session.set("supervisor", supervisor)
+    cl.user_session.set("sub_agents", sub_agents)
+
+    # Set up agent mode picker
+    mode_options = [
+        cl.ModeOption(
+            id="auto",
+            name="Auto",
+            icon=AUTO_ICON,
+            description="Intelligently select the right agent to answer your question.",
+            default=True,
+        ),
+    ]
+    for agent in AGENTS:
+        mode_options.append(
+            cl.ModeOption(
+                id=agent.name,
+                name=agent.name.replace("_", " ").title(),
+                description=agent.description,
+                icon=agent.icon,
+            )
+        )
+
+    agent_mode = cl.Mode(id="agent", name="Agent", options=mode_options)
+    await cl.context.emitter.set_modes([agent_mode])
 
     # Build agent cards data for display
     agents_data = {
@@ -137,7 +164,7 @@ async def on_chat_start():
             {
                 "name": agent.name.replace("_", " ").title(),
                 "description": agent.description,
-                "tools": [t.name for t in agent.tools] + [t.name for t in mcp_tools.get(agent.name, [])]
+                "icon": agent.icon,
             }
             for agent in AGENTS
         ]
@@ -150,12 +177,26 @@ async def on_chat_start():
 
 @cl.on_message
 async def on_message(message: cl.Message):
-    graph = cl.user_session.get("graph")
-    if not graph:
-        await cl.Message(content="Error: Graph not initialized.").send()
+    supervisor = cl.user_session.get("supervisor")
+    sub_agents = cl.user_session.get("sub_agents")
+
+    if not supervisor or not sub_agents:
+        await cl.Message(content="Error: Agents not initialized.").send()
         return
 
-    result = await graph.ainvoke(
+    # Get selected agent mode (defaults to "auto")
+    selected_agent = message.modes.get("agent", "auto")
+
+    # Choose the appropriate agent
+    if selected_agent == "auto":
+        agent = supervisor
+    else:
+        agent = sub_agents.get(selected_agent)
+        if not agent:
+            await cl.Message(content=f"Error: Unknown agent '{selected_agent}'.").send()
+            return
+
+    result = await agent.ainvoke(
         {"messages": [{"role": "user", "content": message.content}]}
     )
     ai_messages = [m for m in result["messages"] if m.type == "ai" and m.content]
