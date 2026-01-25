@@ -12,6 +12,8 @@ A multiagent framework using a supervisor agent that dynamically routes user que
 - MCP (Model Context Protocol) for external tool servers
 - langchain-mcp-adapters (`MultiServerMCPClient`) for MCP-to-LangChain tool conversion
 - PyJWT for copilot widget authentication
+- python-dotenv for environment variable loading
+- Dev tools: black (formatter), pylint (linter)
 
 ## Architecture
 
@@ -25,13 +27,14 @@ Users can select an agent mode via Chainlit's Modes feature. "Auto" (default) us
 Agents are defined as `AgentRecord` dataclass instances in `src/agents/default_agents.py` and exported via `AGENTS` list. The Chainlit app dynamically imports this list and builds the graph at startup — no hardcoded routing logic.
 
 ### Key Files
+- `README.md` — project documentation with architecture overview
 - `src/agents/models.py` — `AgentRecord` dataclass (name, description, route_description, tools, mcps, icon)
 - `src/agents/default_agents.py` — concrete agent definitions (math_agent, weather_agent, movie_agent)
 - `src/agents/__init__.py` — re-exports `AGENTS`
 - `src/middleware/chainlit_middleware_tracer.py` — Chainlit middleware for tool call tracing
 - `mcps/movies/server.py` — MCP server for movie data (using FastMCP)
 - `chainlit_app.py` — supervisor graph construction and Chainlit message handler
-- `public/elements/AgentCards.jsx` — custom Chainlit UI component for displaying agents
+- `public/elements/AgentCards.jsx` — custom Chainlit UI component for displaying agents and starter prompts
 - `public/auto-icon.svg` — custom gradient sparkle icon for Auto mode
 - `website/index.html` — copilot widget embed page
 - `scripts/generate_token.py` — JWT token generator for copilot authentication
