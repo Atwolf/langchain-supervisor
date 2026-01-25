@@ -18,17 +18,21 @@ A multiagent framework using a supervisor agent that dynamically routes user que
 ### Supervisor Pattern (current)
 A single supervisor `create_react_agent` receives all user messages. It has one `StructuredTool` per sub-agent, where each tool's `description` is the agent's `route_description`. The supervisor decides which tool (sub-agent) to invoke based on the user's query.
 
+### Agent Mode Picker
+Users can select an agent mode via Chainlit's Modes feature. "Auto" (default) uses the supervisor for intelligent routing; selecting a specific agent bypasses the supervisor and routes directly to that agent. Mode options display each agent's icon and description.
+
 ### Agent Registration
 Agents are defined as `AgentRecord` dataclass instances in `src/agents/default_agents.py` and exported via `AGENTS` list. The Chainlit app dynamically imports this list and builds the graph at startup — no hardcoded routing logic.
 
 ### Key Files
-- `src/agents/models.py` — `AgentRecord` dataclass (name, description, route_description, tools, mcps)
+- `src/agents/models.py` — `AgentRecord` dataclass (name, description, route_description, tools, mcps, icon)
 - `src/agents/default_agents.py` — concrete agent definitions (math_agent, weather_agent, movie_agent)
 - `src/agents/__init__.py` — re-exports `AGENTS`
 - `src/middleware/chainlit_middleware_tracer.py` — Chainlit middleware for tool call tracing
 - `mcps/movies/server.py` — MCP server for movie data (using FastMCP)
 - `chainlit_app.py` — supervisor graph construction and Chainlit message handler
 - `public/elements/AgentCards.jsx` — custom Chainlit UI component for displaying agents
+- `public/auto-icon.svg` — custom gradient sparkle icon for Auto mode
 - `website/index.html` — copilot widget embed page
 - `scripts/generate_token.py` — JWT token generator for copilot authentication
 
