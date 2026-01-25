@@ -165,6 +165,10 @@ async def on_chat_start():
                 "name": agent.name.replace("_", " ").title(),
                 "description": agent.description,
                 "icon": agent.icon,
+                "tools": [
+                    {"name": t.name, "description": t.description}
+                    for t in list(agent.tools) + mcp_tools.get(agent.name, [])
+                ],
             }
             for agent in AGENTS
         ]
