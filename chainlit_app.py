@@ -11,6 +11,14 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from src.agents import AGENTS
 from src.agents.models import AgentRecord
 from src.middleware import ChainlitMiddlewareTracer
+from src.datalayer import get_data_layer
+from src.auth import password_auth_callback  # noqa: F401
+
+
+# Register the PostgreSQL data layer for persistent threads and feedback
+@cl.data_layer
+def data_layer():
+    return get_data_layer()
 
 # Wells Fargo red gradient sparkle icon
 AUTO_ICON = "/public/auto-icon.svg"
@@ -168,13 +176,6 @@ async def on_chat_start():
     )
     cl.user_session.set("supervisor", supervisor)
     cl.user_session.set("sub_agents", sub_agents)
-
-    # Store agent metadata for middleware to display badges on delegation
-    agent_metadata = {
-        agent.name: {"name": agent.name.replace("_", " ").title(), "icon": agent.icon}
-        for agent in AGENTS
-    }
-    cl.user_session.set("agent_metadata", agent_metadata)
 
     # Set up agent mode picker
     mode_options = [
