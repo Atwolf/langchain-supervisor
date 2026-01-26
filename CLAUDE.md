@@ -13,6 +13,8 @@ A multiagent framework using a supervisor agent that dynamically routes user que
 - langchain-mcp-adapters (`MultiServerMCPClient`) for MCP-to-LangChain tool conversion
 - PyJWT for copilot widget authentication
 - python-dotenv for environment variable loading
+- PostgreSQL 16 with asyncpg for data persistence
+- SQLAlchemy 2.0+ with Chainlit's built-in SQLAlchemyDataLayer
 - Dev tools: black (formatter), pylint (linter)
 
 ## Architecture
@@ -28,10 +30,16 @@ Agents are defined as `AgentRecord` dataclass instances in `src/agents/default_a
 
 ### Key Files
 - `README.md` — project documentation with architecture overview
+- `Makefile` — build automation for starting all services
 - `src/agents/models.py` — `AgentRecord` dataclass (name, description, route_description, tools, mcps, icon)
 - `src/agents/default_agents.py` — concrete agent definitions (math_agent, weather_agent, movie_agent)
 - `src/agents/__init__.py` — re-exports `AGENTS`
 - `src/middleware/chainlit_middleware_tracer.py` — Chainlit middleware for tool call tracing
+- `src/datalayer/postgres.py` — PostgreSQL data layer configuration with LocalStorageClient
+- `src/datalayer/local_storage.py` — Local file storage for element content
+- `src/auth/callbacks.py` — authentication callbacks for user identification
+- `datalayer/database/docker-compose.yml` — PostgreSQL container configuration
+- `datalayer/database/init/01-schema.sql` — Chainlit database schema
 - `mcps/movies/server.py` — MCP server for movie data (using FastMCP)
 - `chainlit_app.py` — supervisor graph construction and Chainlit message handler
 - `public/elements/AgentCards.jsx` — custom Chainlit UI component for displaying agents and starter prompts
@@ -55,11 +63,67 @@ A standalone website (`website/index.html`) embeds the Chainlit copilot widget f
 ### Middleware for Chainlit Tracing
 `ChainlitMiddlewareTracer` is a LangChain middleware that wraps tool calls as Chainlit Steps, providing real-time visibility of tool invocations in the Chainlit UI. It is passed to all `create_agent()` calls.
 
+### PostgreSQL Data Layer
+The application uses a PostgreSQL database for persistent storage via Chainlit's built-in `SQLAlchemyDataLayer` (with `asyncpg` driver). The data layer is registered using the `@cl.data_layer` decorator in `chainlit_app.py`.
+
+**Persisted Data:**
+- **Users**: Identified by username, stores metadata and creation time
+- **Threads**: Chat conversations linked to users, with tags and metadata
+- **Steps**: Individual messages/tool calls within threads
+- **Elements**: File attachments and media (stored via LocalStorageClient)
+- **Feedbacks**: User feedback (thumbs up/down) on assistant messages
+
+**Local Storage for Elements:**
+`LocalStorageClient` implements Chainlit's `BaseStorageClient` interface to store element content (like CustomElement props) in local files. Files are stored in `public/storage/` and served via Chainlit's `/public/` endpoint. This is required for `CustomElement` to work with `SQLAlchemyDataLayer`.
+
+**Key Files:**
+- `src/datalayer/postgres.py` — SQLAlchemy data layer configuration with LocalStorageClient
+- `src/datalayer/local_storage.py` — Local file storage client for element content
+- `datalayer/database/docker-compose.yml` — PostgreSQL container setup
+- `datalayer/database/init/01-schema.sql` — Database schema (auto-applied on first start)
+
+### Authentication
+User identification is handled via Chainlit authentication callbacks, required for thread persistence.
+
+**Callbacks:**
+- `@cl.password_auth_callback` — Web UI login with username/password
+- `@cl.header_auth_callback` — Header-based auth for copilot widget
+
+**Key Files:**
+- `src/auth/callbacks.py` — Authentication callback implementations
+
+**Environment Variables:**
+- `CHAINLIT_DEV_AUTH=true` — Accept any credentials (development mode)
+- `ADMIN_USERNAME` / `ADMIN_PASSWORD` — Production credentials
+
 ### Model Decisions
 - **Supervisor LLM**: claude-sonnet-4-5-20250514 — chosen for fast tool-calling with good routing accuracy
 - **Sub-agent LLM**: same model, each sub-agent uses `create_react_agent` with its own tool list
 
 ## Commands
+
+### Quick Start (Makefile)
+- `make start` - Start all services (database, website, chainlit)
+- `make stop` - Stop all services
+- `make help` - Show all available commands
+
+### Individual Services
+- `make db` - Start PostgreSQL database only
+- `make website` - Start website server only (port 3000)
+- `make chainlit` - Start Chainlit app only (port 8000, starts db first)
+
+### Database Management
+- `make db-shell` - Open psql shell to database
+- `make db-logs` - View database logs
+- `make db-reset` - Reset database (removes all data)
+
+### Development
+- `make install` - Install dependencies
+- `make lint` - Run pylint
+- `make format` - Format code with black
+- `make test` - Run pytest
+
+### Manual Commands
 - `uv run chainlit run chainlit_app.py` - Run the Chainlit app
 - `uv run pytest` - Run tests
 - `cd website && python -m http.server 3000` - Serve copilot widget website

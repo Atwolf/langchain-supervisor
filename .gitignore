@@ -27,6 +27,7 @@ package-lock.json
 
 # Chainlit
 .files/
+public/storage/
 
 # OS
 .DS_Store
