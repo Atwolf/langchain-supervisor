@@ -45,5 +45,3 @@ def password_auth_callback(username: str, password: str) -> Optional[cl.User]:
         )
 
     return None
-
-

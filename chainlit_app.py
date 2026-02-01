@@ -1,6 +1,7 @@
 import os
 import traceback
 from pathlib import Path
+from typing import Dict, Optional
 
 import chainlit as cl
 from langchain_anthropic import ChatAnthropic
@@ -13,6 +14,27 @@ from src.agents.models import AgentRecord
 from src.middleware import ChainlitMiddlewareTracer
 from src.datalayer import get_data_layer
 from src.auth import password_auth_callback  # noqa: F401
+from src.auth.inject_custom_auth import add_custom_oauth_provider
+from src.auth.playground_oauth import PlaygroundOAuthProvider
+
+# Register custom OAuth provider using helper (handles validation and duplicates)
+add_custom_oauth_provider("playground", PlaygroundOAuthProvider())
+
+
+@cl.oauth_callback
+def oauth_callback(
+    provider_id: str,
+    token: str,
+    raw_user_data: Dict[str, str],
+    default_user: cl.User,
+) -> Optional[cl.User]:
+    """
+    OAuth callback to process authenticated users.
+
+    Called after successful OAuth authentication.
+    Returns the user object to be used for the session.
+    """
+    return default_user
 
 
 # Register the PostgreSQL data layer for persistent threads and feedback

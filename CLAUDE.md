@@ -6,6 +6,7 @@ A multiagent framework using a supervisor agent that dynamically routes user que
 ## Tech Stack
 - Python 3.12+ with uv
 - LangGraph for agent orchestration (`create_react_agent`)
+- LangChain Core (`langchain-core`) for base abstractions
 - LangChain Anthropic (`ChatAnthropic`)
 - Anthropic Claude claude-sonnet-4-5-20250514 (sub-agents and supervisor)
 - Chainlit for conversational UI
@@ -13,6 +14,7 @@ A multiagent framework using a supervisor agent that dynamically routes user que
 - langchain-mcp-adapters (`MultiServerMCPClient`) for MCP-to-LangChain tool conversion
 - PyJWT for copilot widget authentication
 - python-dotenv for environment variable loading
+- httpx for async HTTP requests (OAuth token exchange)
 - PostgreSQL 16 with asyncpg for data persistence
 - SQLAlchemy 2.0+ with Chainlit's built-in SQLAlchemyDataLayer
 - Dev tools: black (formatter), pylint (linter)
@@ -88,13 +90,26 @@ User identification is handled via Chainlit authentication callbacks, required f
 **Callbacks:**
 - `@cl.password_auth_callback` — Web UI login with username/password
 - `@cl.header_auth_callback` — Header-based auth for copilot widget
+- `@cl.oauth_callback` — OAuth authentication callback
+
+**OAuth Integration:**
+A custom OAuth provider (`PlaygroundOAuthProvider`) enables authentication via the oauth.com playground server for testing OAuth flows. Provider registration follows the Chainlit cookbook pattern using helper functions that validate environment variables and prevent duplicate registration.
+
+- **Authorization URL**: `https://authorization-server.com/authorize`
+- **Token URL**: `https://authorization-server.com/token`
+- **Scopes**: `photo offline_access`
 
 **Key Files:**
-- `src/auth/callbacks.py` — Authentication callback implementations
+- `src/auth/callbacks.py` — Password authentication callback
+- `src/auth/playground_oauth.py` — Custom OAuth provider for oauth.com playground
+- `src/auth/inject_custom_auth.py` — Helper functions for safe provider registration (following cookbook pattern)
+- `chainlit_app.py` — OAuth callback and provider registration (must register provider before decorator)
 
 **Environment Variables:**
 - `CHAINLIT_DEV_AUTH=true` — Accept any credentials (development mode)
 - `ADMIN_USERNAME` / `ADMIN_PASSWORD` — Production credentials
+- `OAUTH_PLAYGROUND_CLIENT_ID` — OAuth playground client ID
+- `OAUTH_PLAYGROUND_CLIENT_SECRET` — OAuth playground client secret
 
 ### Model Decisions
 - **Supervisor LLM**: claude-sonnet-4-5-20250514 — chosen for fast tool-calling with good routing accuracy
