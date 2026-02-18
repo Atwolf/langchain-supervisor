@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS feedbacks (
     "threadId" UUID NOT NULL,
     "value" INT NOT NULL,
     "comment" TEXT,
+    "subagents" TEXT[],
     FOREIGN KEY ("threadId") REFERENCES threads("id") ON DELETE CASCADE
 );
 

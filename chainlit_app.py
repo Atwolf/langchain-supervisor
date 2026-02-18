@@ -16,6 +16,12 @@ from src.datalayer import get_data_layer
 from src.auth import password_auth_callback  # noqa: F401
 from src.auth.inject_custom_auth import add_custom_oauth_provider
 from src.auth.playground_oauth import PlaygroundOAuthProvider
+from src.telemetry import init_phoenix_tracing
+
+# Initialize Arize Phoenix tracing before any LangChain operations.
+# This auto-instruments all LangChain/LangGraph calls so supervisor-to-subagent
+# delegation is fully traced with nested spans.
+init_phoenix_tracing()
 
 # Register custom OAuth provider using helper (handles validation and duplicates)
 add_custom_oauth_provider("playground", PlaygroundOAuthProvider())
@@ -41,6 +47,7 @@ def oauth_callback(
 @cl.data_layer
 def data_layer():
     return get_data_layer()
+
 
 # Wells Fargo red gradient sparkle icon
 AUTO_ICON = "/public/auto-icon.svg"
@@ -244,6 +251,22 @@ async def on_chat_start():
     await cl.Message(content="", elements=[agent_cards]).send()
 
 
+def extract_subagents_from_result(result, agents: list[AgentRecord]) -> list[str]:
+    """
+    Extract which subagents were invoked from the supervisor's result messages.
+
+    Inspects tool calls in the message history to find calls that match
+    registered agent names (since the supervisor uses agent names as tool names).
+    """
+    agent_names = {a.name for a in agents}
+    subagents = []
+    for msg in result.get("messages", []):
+        for tc in getattr(msg, "tool_calls", []):
+            if tc.get("name") in agent_names and tc["name"] not in subagents:
+                subagents.append(tc["name"])
+    return subagents
+
+
 @cl.on_message
 async def on_message(message: cl.Message):
     supervisor = cl.user_session.get("supervisor")
@@ -270,4 +293,15 @@ async def on_message(message: cl.Message):
     )
     ai_messages = [m for m in result["messages"] if m.type == "ai" and m.content]
     response = ai_messages[-1].content if ai_messages else "No response."
-    await cl.Message(content=response).send()
+
+    # Determine which subagents contributed to this response
+    if selected_agent == "auto":
+        contributing_subagents = extract_subagents_from_result(result, AGENTS)
+    else:
+        contributing_subagents = [selected_agent]
+
+    # Attach subagent metadata to the response message for feedback association
+    await cl.Message(
+        content=response,
+        metadata={"subagents": contributing_subagents},
+    ).send()
