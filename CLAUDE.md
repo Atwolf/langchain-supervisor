@@ -30,10 +30,15 @@ Users can select an agent mode via Chainlit's Modes feature. "Auto" (default) us
 ### Agent Registration
 Agents are defined as `AgentRecord` dataclass instances in `src/agents/default_agents.py` and exported via `AGENTS` list. The Chainlit app dynamically imports this list and builds the graph at startup — no hardcoded routing logic.
 
+### Resilient MCP Tool Loading
+MCP tools are loaded per-server with individual fault isolation via `src/mcp/resilient_loader.py`. The library's `MultiServerMCPClient.get_tools()` uses `asyncio.gather()` without `return_exceptions=True`, so one server failure kills all tool loading. The resilient loader works around this by calling `get_tools(server_name=X)` per server inside individual try/except wrappers, running them in parallel. Failed servers log a warning and are skipped; agents work as long as at least one of their MCP servers succeeds.
+
+`McpServerConfig` dataclass in `src/agents/models.py` supports all transport types (stdio, sse, streamable_http, websocket). The `mcps` field on `AgentRecord` accepts both plain string paths (legacy stdio) and `McpServerConfig` instances. Server names are prefixed with agent names to avoid collisions across agents.
+
 ### Key Files
 - `README.md` — project documentation with architecture overview
 - `Makefile` — build automation for starting all services
-- `src/agents/models.py` — `AgentRecord` dataclass (name, description, route_description, tools, mcps, icon)
+- `src/agents/models.py` — `AgentRecord` and `McpServerConfig` dataclasses
 - `src/agents/default_agents.py` — concrete agent definitions (math_agent, weather_agent, movie_agent)
 - `src/agents/__init__.py` — re-exports `AGENTS`
 - `src/middleware/chainlit_middleware_tracer.py` — Chainlit middleware for tool call tracing
@@ -42,6 +47,7 @@ Agents are defined as `AgentRecord` dataclass instances in `src/agents/default_a
 - `src/auth/callbacks.py` — authentication callbacks for user identification
 - `datalayer/database/docker-compose.yml` — PostgreSQL container configuration
 - `datalayer/database/init/01-schema.sql` — Chainlit database schema
+- `src/mcp/resilient_loader.py` — per-server fault-isolated MCP tool loading
 - `mcps/movies/server.py` — MCP server for movie data (using FastMCP)
 - `chainlit_app.py` — supervisor graph construction and Chainlit message handler
 - `public/elements/AgentCards.jsx` — custom Chainlit UI component for displaying agents and starter prompts
