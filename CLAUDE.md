@@ -17,6 +17,8 @@ A multiagent framework using a supervisor agent that dynamically routes user que
 - httpx for async HTTP requests (OAuth token exchange)
 - PostgreSQL 16 with asyncpg for data persistence
 - SQLAlchemy 2.0+ with Chainlit's built-in SQLAlchemyDataLayer
+- Arize Phoenix (`arize-phoenix-otel`) for LLM observability and tracing
+- OpenInference (`openinference-instrumentation-langchain`) for LangChain auto-instrumentation
 - Dev tools: black (formatter), pylint (linter)
 
 ## Architecture
@@ -37,11 +39,13 @@ Agents are defined as `AgentRecord` dataclass instances in `src/agents/default_a
 - `src/agents/default_agents.py` — concrete agent definitions (math_agent, weather_agent, movie_agent)
 - `src/agents/__init__.py` — re-exports `AGENTS`
 - `src/middleware/chainlit_middleware_tracer.py` — Chainlit middleware for tool call tracing
-- `src/datalayer/postgres.py` — PostgreSQL data layer configuration with LocalStorageClient
+- `src/telemetry/phoenix_setup.py` — Arize Phoenix OpenTelemetry initialization
+- `src/datalayer/postgres.py` — PostgreSQL data layer with subagent feedback association
 - `src/datalayer/local_storage.py` — Local file storage for element content
 - `src/auth/callbacks.py` — authentication callbacks for user identification
 - `datalayer/database/docker-compose.yml` — PostgreSQL container configuration
 - `datalayer/database/init/01-schema.sql` — Chainlit database schema
+- `datalayer/database/init/02-add-subagents-to-feedbacks.sql` — Migration adding subagents column to feedbacks
 - `mcps/movies/server.py` — MCP server for movie data (using FastMCP)
 - `chainlit_app.py` — supervisor graph construction and Chainlit message handler
 - `public/elements/AgentCards.jsx` — custom Chainlit UI component for displaying agents and starter prompts
@@ -65,6 +69,31 @@ A standalone website (`website/index.html`) embeds the Chainlit copilot widget f
 ### Middleware for Chainlit Tracing
 `ChainlitMiddlewareTracer` is a LangChain middleware that wraps tool calls as Chainlit Steps, providing real-time visibility of tool invocations in the Chainlit UI. It is passed to all `create_agent()` calls.
 
+### Observability (Arize Phoenix)
+All LangChain/LangGraph operations are auto-instrumented via OpenInference's `LangChainInstrumentor`, sending traces to an Arize Phoenix collector. This provides full supervisor-to-subagent trace visibility: when the supervisor delegates to a subagent via tool call, the subagent's execution (including its own tool calls) appears as nested spans under the supervisor's trace.
+
+**Setup**: `init_phoenix_tracing()` is called at module level in `chainlit_app.py` (before any LangChain operations). It registers an OTLP exporter with the Phoenix collector endpoint and instruments LangChain.
+
+**Key Files:**
+- `src/telemetry/phoenix_setup.py` — Phoenix/OTel initialization
+- `src/telemetry/__init__.py` — Re-exports `init_phoenix_tracing`
+
+**Environment Variables:**
+- `PHOENIX_COLLECTOR_ENDPOINT` — Phoenix collector URL (default: `http://localhost:6006/v1/traces`)
+- `PHOENIX_PROJECT_NAME` — Project name in Phoenix dashboard (default: `langchain-supervisor`)
+- `PHOENIX_TRACING_ENABLED` — Set to `false` to disable tracing (default: `true`)
+
+### Subagent Feedback Association
+When a user submits feedback (thumbs up/down) on a message, the feedback record is automatically associated with the subagent(s) that contributed to that response.
+
+**How it works:**
+1. `on_message` in `chainlit_app.py` inspects the supervisor's result messages after invocation to identify which subagent tools were called (via `extract_subagents_from_result`)
+2. The contributing subagent names are stored in the response message's `metadata.subagents` field
+3. `CustomSQLAlchemyDataLayer.upsert_feedback` overrides the base implementation to look up the step's metadata and write the subagent names into the feedback record's `subagents` column
+4. The feedbacks table has a `subagents TEXT[]` column with a GIN index for efficient querying
+
+**Example**: A user asks "What's the weather in Paris?" → supervisor delegates to `weather_agent` → response message metadata contains `{"subagents": ["weather_agent"]}` → user gives thumbs up → feedback record gets `subagents = ["weather_agent"]`.
+
 ### PostgreSQL Data Layer
 The application uses a PostgreSQL database for persistent storage via Chainlit's built-in `SQLAlchemyDataLayer` (with `asyncpg` driver). The data layer is registered using the `@cl.data_layer` decorator in `chainlit_app.py`.
 
@@ -73,16 +102,17 @@ The application uses a PostgreSQL database for persistent storage via Chainlit's
 - **Threads**: Chat conversations linked to users, with tags and metadata
 - **Steps**: Individual messages/tool calls within threads
 - **Elements**: File attachments and media (stored via LocalStorageClient)
-- **Feedbacks**: User feedback (thumbs up/down) on assistant messages
+- **Feedbacks**: User feedback (thumbs up/down) on assistant messages, with subagent association
 
 **Local Storage for Elements:**
 `LocalStorageClient` implements Chainlit's `BaseStorageClient` interface to store element content (like CustomElement props) in local files. Files are stored in `public/storage/` and served via Chainlit's `/public/` endpoint. This is required for `CustomElement` to work with `SQLAlchemyDataLayer`.
 
 **Key Files:**
-- `src/datalayer/postgres.py` — SQLAlchemy data layer configuration with LocalStorageClient
+- `src/datalayer/postgres.py` — SQLAlchemy data layer with subagent feedback association
 - `src/datalayer/local_storage.py` — Local file storage client for element content
 - `datalayer/database/docker-compose.yml` — PostgreSQL container setup
 - `datalayer/database/init/01-schema.sql` — Database schema (auto-applied on first start)
+- `datalayer/database/init/02-add-subagents-to-feedbacks.sql` — Migration for subagents column
 
 ### Authentication
 User identification is handled via Chainlit authentication callbacks, required for thread persistence.
@@ -114,6 +144,8 @@ A custom OAuth provider (`PlaygroundOAuthProvider`) enables authentication via t
 ### Model Decisions
 - **Supervisor LLM**: claude-sonnet-4-5-20250514 — chosen for fast tool-calling with good routing accuracy
 - **Sub-agent LLM**: same model, each sub-agent uses `create_react_agent` with its own tool list
+- **Observability**: Arize Phoenix via OpenInference — chosen for native LangChain auto-instrumentation and subagent span nesting without manual tracing code
+- **Feedback storage**: PostgreSQL `TEXT[]` column on feedbacks table — chosen over JSONB for direct queryability (e.g., `WHERE 'weather_agent' = ANY(subagents)`)
 
 ## Commands
 
