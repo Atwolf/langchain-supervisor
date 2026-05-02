@@ -1,3 +1,5 @@
+"""Chainlit entrypoint for supervisor routing and QA JSON collection."""
+
 import os
 import traceback
 from pathlib import Path
@@ -16,6 +18,13 @@ from src.datalayer import get_data_layer
 from src.auth import password_auth_callback  # noqa: F401
 from src.auth.inject_custom_auth import add_custom_oauth_provider
 from src.auth.playground_oauth import PlaygroundOAuthProvider
+from src.qa_wizard import (
+    QA_OPTIONS,
+    QA_WIZARD_TIMEOUT_SECONDS,
+    empty_model,
+    model_to_json,
+    normalize_model,
+)
 
 # Register custom OAuth provider using helper (handles validation and duplicates)
 add_custom_oauth_provider("playground", PlaygroundOAuthProvider())
@@ -42,11 +51,83 @@ def oauth_callback(
 def data_layer():
     return get_data_layer()
 
+
 # Wells Fargo red gradient sparkle icon
 AUTO_ICON = "/public/auto-icon.svg"
 
 
+def qa_actions() -> list[cl.Action]:
+    """Return actions attached to QA wizard JSON messages."""
+    return [
+        cl.Action(
+            name="qa_restart",
+            payload={},
+            label="Restart QA Wizard",
+            icon="refresh-cw",
+        ),
+        cl.Action(
+            name="qa_show_json",
+            payload={},
+            label="Show Last JSON",
+            icon="braces",
+        ),
+    ]
+
+
+async def send_qa_model(model: dict) -> None:
+    """Render the generated QA JSON model and action affordances."""
+    await cl.Message(
+        content=model_to_json(model),
+        language="json",
+        actions=qa_actions(),
+    ).send()
+
+
+async def send_qa_entrypoint() -> None:
+    """Render the QA wizard entrypoint without using composer commands."""
+    entrypoint = cl.CustomElement(
+        name="QaEntrypoint",
+        props={
+            "title": "Architecture QA Wizard",
+            "description": (
+                "Collect system, component, data, messaging, and integration "
+                "details into a target JSON model."
+            ),
+        },
+    )
+    await cl.Message(
+        content="",
+        elements=[entrypoint],
+    ).send()
+
+
+async def run_qa_wizard() -> None:
+    """Collect architecture QA inputs via a Chainlit custom element."""
+    initial_model = cl.user_session.get("qa_model") or empty_model()
+    wizard = cl.CustomElement(
+        name="QaWizard",
+        props={
+            "options": QA_OPTIONS,
+            "initialModel": initial_model,
+        },
+    )
+    response = await cl.AskElementMessage(
+        content="Complete the QA wizard to generate a target architecture JSON model.",
+        element=wizard,
+        timeout=QA_WIZARD_TIMEOUT_SECONDS,
+    ).send()
+
+    if not response or not response.get("submitted"):
+        await cl.Message(content="QA wizard cancelled.").send()
+        return
+
+    model = normalize_model(response.get("model"))
+    cl.user_session.set("qa_model", model)
+    await send_qa_model(model)
+
+
 def build_supervisor_prompt(agents: list[AgentRecord]) -> str:
+    """Build the supervisor routing prompt from registered agent metadata."""
     agent_descriptions = "\n".join(
         f"- **{a.name}**: {a.route_description}" for a in agents
     )
@@ -85,7 +166,7 @@ def build_agents(
         )
 
     # Build routing tools for the supervisor: one tool per sub-agent
-    def _make_delegate_fn(agent_name: str, agent_runnable):
+    def _make_delegate_fn(agent_runnable):
         async def delegate(query: str) -> str:
             """Delegate a query to this agent."""
             result = await agent_runnable.ainvoke(
@@ -101,7 +182,7 @@ def build_agents(
 
     supervisor_tools = []
     for agent in agents:
-        fn = _make_delegate_fn(agent.name, sub_agents[agent.name])
+        fn = _make_delegate_fn(sub_agents[agent.name])
         tool = StructuredTool.from_function(
             coroutine=fn,
             name=agent.name,
@@ -222,6 +303,8 @@ async def on_chat_start():
     agent_mode = cl.Mode(id="agent", name="Agent", options=mode_options)
     await cl.context.emitter.set_modes([agent_mode])
 
+    await send_qa_entrypoint()
+
     # Build agent cards data for display
     agents_data = {
         "starters": STARTERS,
@@ -244,8 +327,34 @@ async def on_chat_start():
     await cl.Message(content="", elements=[agent_cards]).send()
 
 
+@cl.action_callback("qa_start")
+async def on_qa_start(_action: cl.Action):
+    """Start the QA wizard from the explicit action boundary."""
+    await run_qa_wizard()
+
+
+@cl.action_callback("qa_restart")
+async def on_qa_restart(action: cl.Action):
+    """Restart the QA wizard from the latest session-scoped model."""
+    await action.remove()
+    await run_qa_wizard()
+
+
+@cl.action_callback("qa_show_json")
+async def on_qa_show_json(action: cl.Action):
+    """Resend the last generated QA JSON model."""
+    await action.remove()
+    model = cl.user_session.get("qa_model")
+    if not model:
+        await cl.Message(content="No QA JSON model has been generated yet.").send()
+        return
+
+    await send_qa_model(model)
+
+
 @cl.on_message
 async def on_message(message: cl.Message):
+    """Route messages through agent orchestration."""
     supervisor = cl.user_session.get("supervisor")
     sub_agents = cl.user_session.get("sub_agents")
 
