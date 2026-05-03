@@ -20,6 +20,7 @@ from src.auth.inject_custom_auth import add_custom_oauth_provider
 from src.auth.playground_oauth import PlaygroundOAuthProvider
 from src.qa_wizard import (
     QA_OPTIONS,
+    QA_WIZARD_DEFINITION,
     QA_WIZARD_TIMEOUT_SECONDS,
     empty_model,
     model_to_json,
@@ -107,6 +108,7 @@ async def run_qa_wizard() -> None:
     wizard = cl.CustomElement(
         name="QaWizard",
         props={
+            "definition": QA_WIZARD_DEFINITION,
             "options": QA_OPTIONS,
             "initialModel": initial_model,
         },
