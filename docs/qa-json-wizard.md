@@ -10,8 +10,8 @@ The important architectural boundary is that the wizard does not use the supervi
 2. `public/elements/QaEntrypoint.jsx` renders an isolated card labeled `Architecture QA Wizard`.
 3. Clicking the card calls Chainlit's custom element action API with the `qa_start` action name.
 4. `@cl.action_callback("qa_start")` calls `run_qa_wizard()`.
-5. `run_qa_wizard()` sends an `AskElementMessage` containing `public/elements/QaWizard.jsx`.
-6. The wizard drives a multi-phase form in the browser and submits the final payload with `submitElement({ model })`.
+5. `run_qa_wizard()` sends an `AskElementMessage` containing `public/elements/QaWizard.jsx`, along with the Python-owned wizard definition, option lists, and latest session model.
+6. The wizard renders stages and fields from the definition, keeps a mutable draft model in the browser, and submits the draft payload with `submitElement({ model })`.
 7. `chainlit_app.py` receives the submitted payload, calls `normalize_model()` from `src/qa_wizard.py`, stores the normalized model in `cl.user_session["qa_model"]`, and renders formatted JSON in chat.
 8. The rendered JSON message includes `qa_restart` and `qa_show_json` actions for quick iteration.
 
@@ -21,21 +21,33 @@ This action-first entrypoint replaced the slash command approach. Chainlit slash
 
 The wizard has a narrow contract with the rest of the application:
 
-- It can read option lists from `src/qa_wizard.py`.
+- It can read the wizard definition and option lists from `src/qa_wizard.py`.
 - It can read a prior session-scoped model from `cl.user_session`.
 - It can submit a candidate model to the backend.
 - It does not call the supervisor, sub-agents, MCP tools, or model providers.
 - It does not persist records to PostgreSQL, local files, or external systems.
 
-That keeps the POC simple and prevents the deterministic collection workflow from leaking into the conversational agent abstraction layer.
+That keeps the POC simple and prevents the deterministic collection workflow from leaking into the conversational agent abstraction layer. The browser owns rendering and fast validation; the backend remains the normalization and target JSON contract boundary.
 
 ## Key Files
 
 - `chainlit_app.py` wires the Chainlit callbacks, sends the entrypoint card, opens the wizard, stores the latest model in `cl.user_session`, and renders JSON responses.
-- `src/qa_wizard.py` owns option lists, the empty model factory, stable id generation, JSON formatting, and normalization.
+- `src/qa_wizard.py` owns the composable wizard definition, option lists, the empty model factory, stable id generation, JSON formatting, and normalization.
 - `public/elements/QaEntrypoint.jsx` renders the isolated start card and invokes the `qa_start` action.
-- `public/elements/QaWizard.jsx` renders the multi-phase custom form, validates required fields, supports repeated item sections, and submits the target model.
+- `public/elements/QaWizard.jsx` renders the definition-driven custom form, validates required fields, supports repeated item sections, resolves dynamic options, and submits the draft model.
 - `docs/qa-json-wizard.md` documents this contract and should be updated when the target model or interaction boundary changes.
+
+## Composable Definition
+
+The content layer is now declared in `QA_WIZARD_DEFINITION` rather than hardcoded as React phase branches. The definition contains:
+
+- `id`, `version`, and `title` for the wizard contract.
+- `modelTemplate`, which seeds the browser draft model.
+- Ordered `stages`, each with schema descriptors for `text`, `textarea`, `multiselect`, `boolean`, `repeat`, and `review` steps.
+- Repeat-section metadata such as `itemTemplate`, `itemSteps`, `minItems`, and `idStrategy`.
+- Option bindings through either `optionsKey` for static taxonomies or `optionsSource.type = "modelCollection"` for component relationship fields.
+
+This gives the POC a narrower customization surface: product or platform engineers can add or move simple questions by changing schema descriptors, while the renderer remains generic and the backend still controls final normalization.
 
 ## JSON Contract
 
@@ -103,7 +115,7 @@ The frontend derives relationship options from the current component list. The b
 
 ## Required Fields
 
-The wizard currently treats these fields as required:
+The wizard definition currently marks these fields as required:
 
 - System: `name`, `description`, `users`, `entry_points`, `edge_layers`
 - Containers: at least one item, plus each item's `name`, `type`, `framework`, `description`, and explicit `is_paa` choice
@@ -128,7 +140,7 @@ Ids are regenerated during normalization so the backend remains the source of tr
 
 All first-party option lists live in `QA_OPTIONS` in `src/qa_wizard.py`. The custom element receives those options as props so the frontend does not need to hardcode enterprise taxonomy values.
 
-To add or rename options, update `QA_OPTIONS` first. The frontend will render the new values automatically for the existing phases. Freeform `Other` entries are appended directly into the relevant arrays to keep the model contract flat.
+To add or rename options, update `QA_OPTIONS` first. The frontend will render the new values automatically for schema fields that reference the matching `optionsKey`. Freeform `Other` entries are appended directly into the relevant arrays to keep the model contract flat.
 
 ## Action Callbacks
 
@@ -155,7 +167,8 @@ For enterprise usage, persistence should be added behind an explicit service bou
 
 Common follow-on changes should be made at these boundaries:
 
-- Add fields by extending the JSON factory and normalizers in `src/qa_wizard.py`, then adding matching controls in `QaWizard.jsx`.
+- Add simple fields by extending `QA_WIZARD_DEFINITION` and, if the target JSON shape changes, the JSON factory and normalizers in `src/qa_wizard.py`.
+- Add a new field type by registering a renderer in `QaWizard.jsx` and then using that type from `QA_WIZARD_DEFINITION`.
 - Add downstream diagram generation by consuming the normalized model after `normalize_model()` returns.
 - Add taxonomy governance by replacing `QA_OPTIONS` values with values loaded from a service or configuration file.
 - Add stricter validation by keeping browser validation for fast UX and mirroring critical rules in `normalize_model()`.
