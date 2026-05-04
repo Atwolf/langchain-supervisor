@@ -12,8 +12,9 @@ The important architectural boundary is that the wizard does not use the supervi
 4. `@cl.action_callback("qa_start")` calls `run_qa_wizard()`.
 5. `run_qa_wizard()` sends an `AskElementMessage` containing `public/elements/QaWizard.jsx`, along with the Python-owned wizard definition, option lists, and latest session model.
 6. The wizard renders stages and fields from the definition, keeps a mutable draft model in the browser, and submits the draft payload with `submitElement({ model })`.
-7. `chainlit_app.py` receives the submitted payload, calls `normalize_model()` from `src/qa_wizard.py`, stores the normalized model in `cl.user_session["qa_model"]`, and renders formatted JSON in chat.
-8. The rendered JSON message includes `qa_restart` and `qa_show_json` actions for quick iteration.
+7. `chainlit_app.py` receives the submitted payload, calls `normalize_model()` from `src/qa_wizard.py`, stores the normalized model in `cl.user_session["qa_model"]`, and removes the transient ask message so Chainlit does not leave a generic submit confirmation in the thread.
+8. The normalized model is passed to `build_qa_c4_artifact()` in `src/qa_c4.py`, which creates a deterministic C4 view model and C4 code string.
+9. The chat renders one `QaModelResult` custom element with `Diagram`, `JSON`, and `C4 Code` tabs plus quick iteration actions.
 
 This action-first entrypoint replaced the slash command approach. Chainlit slash commands are composer-driven and require a user message submission before backend handling runs. The explicit card action is a cleaner UX because the callback fires immediately when the user clicks the card.
 
@@ -24,6 +25,7 @@ The wizard has a narrow contract with the rest of the application:
 - It can read the wizard definition and option lists from `src/qa_wizard.py`.
 - It can read a prior session-scoped model from `cl.user_session`.
 - It can submit a candidate model to the backend.
+- It can render a browser-owned C4 diagram from a backend-generated view model.
 - It does not call the supervisor, sub-agents, MCP tools, or model providers.
 - It does not persist records to PostgreSQL, local files, or external systems.
 
@@ -33,8 +35,10 @@ That keeps the POC simple and prevents the deterministic collection workflow fro
 
 - `chainlit_app.py` wires the Chainlit callbacks, sends the entrypoint card, opens the wizard, stores the latest model in `cl.user_session`, and renders JSON responses.
 - `src/qa_wizard.py` owns the composable wizard definition, option lists, the empty model factory, stable id generation, JSON formatting, and normalization.
+- `src/qa_c4.py` transforms the normalized model into a simple C4 diagram view model and C4-PlantUML-style code string. It does not invoke Graphviz, PlantUML, Mermaid, or any external renderer.
 - `public/elements/QaEntrypoint.jsx` renders the isolated start card and invokes the `qa_start` action.
 - `public/elements/QaWizard.jsx` renders the definition-driven custom form, validates required fields, supports repeated item sections, resolves dynamic options, and submits the draft model.
+- `public/elements/QaModelResult.jsx` renders the generated result with `Diagram`, `JSON`, and `C4 Code` tabs.
 - `docs/qa-json-wizard.md` documents this contract and should be updated when the target model or interaction boundary changes.
 
 ## Composable Definition
@@ -113,6 +117,19 @@ Relationship fields store component ids, not display labels:
 
 The frontend derives relationship options from the current component list. The backend then filters relationship arrays against the normalized component id set so stale ids are not preserved if a component is renamed or removed.
 
+## C4 Result
+
+The C4 layer is a deterministic post-processing boundary over the normalized model. It intentionally avoids native runtime dependencies such as Graphviz `dot`.
+
+`src/qa_c4.py` maps the model into:
+
+- `diagram.nodes`, with node kinds for people, containers, databases, queues, and external systems.
+- `diagram.edges`, derived from the relationship arrays in the normalized model.
+- `c4Code`, a C4-PlantUML-style text representation that can be copied into a C4-compatible renderer later if the integration environment supports one.
+- `stats`, containing basic node and relationship counts for the UI.
+
+`public/elements/QaModelResult.jsx` renders the diagram directly as SVG inside Chainlit. This keeps the POC dependency surface small for enterprise scaffold usage: the Python service creates data, and the browser owns presentation.
+
 ## Required Fields
 
 The wizard definition currently marks these fields as required:
@@ -131,8 +148,8 @@ The repeated item phases do not require a data store, messaging resource, or ext
 
 Examples:
 
-- `Customer API` becomes `customer-api`
-- A second item named `Customer API` becomes `customer-api-2`
+- `Customer API` becomes `container_customer_api`
+- A second item named `Customer API` becomes `container_customer_api_2`
 
 Ids are regenerated during normalization so the backend remains the source of truth. This keeps the scaffold simple and makes hand-authored or copied payloads easier to repair.
 
@@ -144,11 +161,12 @@ To add or rename options, update `QA_OPTIONS` first. The frontend will render th
 
 ## Action Callbacks
 
-The wizard uses three Chainlit action callbacks:
+The wizard uses these Chainlit action callbacks:
 
 - `qa_start` opens the wizard from the entrypoint card.
 - `qa_restart` reopens the wizard with `cl.user_session["qa_model"]` as the initial model.
-- `qa_show_json` resends the latest session-scoped model.
+- `qa_show_json` resends the latest session-scoped result with the diagram, JSON, and C4 code tabs.
+- `qa_show_diagram` remains as a compatibility alias for older rendered action controls and sends the same tabbed result.
 
 The callbacks are intentionally small. They are orchestration hooks, while validation and normalization remain in the custom element and `src/qa_wizard.py`.
 
@@ -169,7 +187,7 @@ Common follow-on changes should be made at these boundaries:
 
 - Add simple fields by extending `QA_WIZARD_DEFINITION` and, if the target JSON shape changes, the JSON factory and normalizers in `src/qa_wizard.py`.
 - Add a new field type by registering a renderer in `QaWizard.jsx` and then using that type from `QA_WIZARD_DEFINITION`.
-- Add downstream diagram generation by consuming the normalized model after `normalize_model()` returns.
+- Extend diagram behavior by updating `src/qa_c4.py` for backend artifact generation and `QaModelResult.jsx` for browser presentation.
 - Add taxonomy governance by replacing `QA_OPTIONS` values with values loaded from a service or configuration file.
 - Add stricter validation by keeping browser validation for fast UX and mirroring critical rules in `normalize_model()`.
 - Add persistence through a dedicated save callback rather than writing directly from the custom element.
@@ -179,7 +197,7 @@ Common follow-on changes should be made at these boundaries:
 Recommended local checks:
 
 ```bash
-uv run python -m py_compile chainlit_app.py src/qa_wizard.py
+uv run python -m py_compile chainlit_app.py src/qa_wizard.py src/qa_c4.py
 uv run chainlit run chainlit_app.py
 ```
 
@@ -190,6 +208,7 @@ Manual browser validation:
 3. Confirm the wizard opens immediately without sending a chat message.
 4. Try advancing with missing required fields and confirm validation errors render.
 5. Complete a sample model with at least one container, data store, messaging resource, and external system.
-6. Submit and verify the chat renders formatted JSON.
-7. Click `Restart QA Wizard` and confirm the previous model preloads.
-8. Click `Show Last JSON` and confirm the same normalized JSON is resent.
+6. Submit and verify the chat renders one tabbed result element.
+7. Confirm the `Diagram`, `JSON`, and `C4 Code` tabs all render usable content.
+8. Click `Restart QA Wizard` and confirm the previous model preloads.
+9. Click `Show Last Result` and confirm the same normalized result is resent.
