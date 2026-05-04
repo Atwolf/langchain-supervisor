@@ -18,6 +18,7 @@ from src.datalayer import get_data_layer
 from src.auth import password_auth_callback  # noqa: F401
 from src.auth.inject_custom_auth import add_custom_oauth_provider
 from src.auth.playground_oauth import PlaygroundOAuthProvider
+from src.qa_c4 import build_qa_c4_artifact
 from src.qa_wizard import (
     QA_OPTIONS,
     QA_WIZARD_DEFINITION,
@@ -57,30 +58,38 @@ def data_layer():
 AUTO_ICON = "/public/auto-icon.svg"
 
 
-def qa_actions() -> list[cl.Action]:
-    """Return actions attached to QA wizard JSON messages."""
+def qa_action_specs() -> list[dict]:
+    """Return action specs for QA model controls."""
     return [
-        cl.Action(
-            name="qa_restart",
-            payload={},
-            label="Restart QA Wizard",
-            icon="refresh-cw",
-        ),
-        cl.Action(
-            name="qa_show_json",
-            payload={},
-            label="Show Last JSON",
-            icon="braces",
-        ),
+        {
+            "name": "qa_restart",
+            "label": "Restart QA Wizard",
+            "icon": "refresh-cw",
+        },
+        {
+            "name": "qa_show_json",
+            "label": "Show Last Result",
+            "icon": "braces",
+        },
     ]
 
 
 async def send_qa_model(model: dict) -> None:
-    """Render the generated QA JSON model and action affordances."""
+    """Render the generated QA model as tabbed JSON, C4 code, and diagram views."""
+    artifact = build_qa_c4_artifact(model)
+    result = cl.CustomElement(
+        name="QaModelResult",
+        props={
+            "title": artifact["title"],
+            "model": model,
+            "json": model_to_json(model),
+            "artifact": artifact,
+            "actions": qa_action_specs(),
+        },
+    )
     await cl.Message(
-        content=model_to_json(model),
-        language="json",
-        actions=qa_actions(),
+        content="",
+        elements=[result],
     ).send()
 
 
@@ -113,11 +122,13 @@ async def run_qa_wizard() -> None:
             "initialModel": initial_model,
         },
     )
-    response = await cl.AskElementMessage(
+    ask = cl.AskElementMessage(
         content="Complete the QA wizard to generate a target architecture JSON model.",
         element=wizard,
         timeout=QA_WIZARD_TIMEOUT_SECONDS,
-    ).send()
+    )
+    response = await ask.send()
+    await ask.remove()
 
     if not response or not response.get("submitted"):
         await cl.Message(content="QA wizard cancelled.").send()
@@ -344,7 +355,19 @@ async def on_qa_restart(action: cl.Action):
 
 @cl.action_callback("qa_show_json")
 async def on_qa_show_json(action: cl.Action):
-    """Resend the last generated QA JSON model."""
+    """Resend the last generated QA result."""
+    await action.remove()
+    model = cl.user_session.get("qa_model")
+    if not model:
+        await cl.Message(content="No QA JSON model has been generated yet.").send()
+        return
+
+    await send_qa_model(model)
+
+
+@cl.action_callback("qa_show_diagram")
+async def on_qa_show_diagram(action: cl.Action):
+    """Compatibility alias for older rendered QA action controls."""
     await action.remove()
     model = cl.user_session.get("qa_model")
     if not model:
