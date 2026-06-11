@@ -1,18 +1,16 @@
 """Chainlit entrypoint for supervisor routing and QA JSON collection."""
 
 import os
-import traceback
-from pathlib import Path
 from typing import Dict, Optional
 
 import chainlit as cl
 from langchain_anthropic import ChatAnthropic
 from langchain.agents import create_agent
 from langchain_core.tools import StructuredTool
-from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from src.agents import AGENTS
 from src.agents.models import AgentRecord
+from src.mcp import load_mcp_tools_resilient
 from src.middleware import ChainlitMiddlewareTracer
 from src.datalayer import get_data_layer
 from src.auth import password_auth_callback  # noqa: F401
@@ -230,49 +228,11 @@ STARTERS = [
 @cl.on_chat_start
 async def on_chat_start():
     """Initialize MCP servers and build the graph on chat start."""
-    mcp_tools = {}
+    # Resilient MCP tool loading — one server failing won't affect others
+    mcp_tools, mcp_client = await load_mcp_tools_resilient(AGENTS)
 
-    # Build MCP server configuration for MultiServerMCPClient
-    mcp_servers = {}
-    agent_mcp_mapping = {}  # Track which agent uses which MCP server
-
-    for agent in AGENTS:
-        for mcp_path in agent.mcps:
-            server_name = Path(
-                mcp_path
-            ).stem  # e.g., "server" from "mcps/movies/server.py"
-            mcp_servers[server_name] = {
-                "command": "uv",
-                "args": ["run", "python", mcp_path],
-                "transport": "stdio",
-            }
-            agent_mcp_mapping[server_name] = agent.name
-
-    if mcp_servers:
-        try:
-            # Create the multi-server client (no context manager needed)
-            mcp_client = MultiServerMCPClient(mcp_servers)
-
-            # Get all tools from MCP servers
-            all_mcp_tools = await mcp_client.get_tools()
-
-            # Map tools back to their agents
-            for tool in all_mcp_tools:
-                # Find which agent this tool belongs to based on server name
-                for server_name, agent_name in agent_mcp_mapping.items():
-                    mcp_tools.setdefault(agent_name, []).append(tool)
-                    break  # Each tool only belongs to one agent
-
-            print(
-                f"Connected to MCP servers. Tools loaded: {[t.name for t in all_mcp_tools]}"
-            )
-
-            # Store client for potential cleanup
-            cl.user_session.set("mcp_client", mcp_client)
-
-        except (ConnectionError, TimeoutError, RuntimeError, OSError) as e:
-            print(f"Failed to start MCP servers: {e}")
-            traceback.print_exc()
+    if mcp_client:
+        cl.user_session.set("mcp_client", mcp_client)
 
     # Build all agents with middleware and MCP tools
     middleware = [ChainlitMiddlewareTracer()]
